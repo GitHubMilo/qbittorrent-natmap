@@ -11,9 +11,9 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     volumes:
-      - /<yourpath>:/gluetun
+      - ./config/gluetun:/gluetun
       # If using ProtonVPN with OpenVPN, this path needs to be set to the downloaded .ovpn file
-      # - /<yourpath>/<ovpn_config>.udp.ovpn:/gluetun/custom.conf:ro
+      # - ./config/ovpn_config/ovpn_config.udp.ovpn:/gluetun/custom.conf:ro
     environment:
       # See https://github.com/qdm12/gluetun/wiki
       ## ProtonVPN Wireguard
@@ -32,32 +32,36 @@ services:
       # - OPENVPN_USER=<username>+pmp
       # - OPENVPN_PASSWORD=
       # Timezone for accurate log times
-      - TZ=Etc/UTC
+      - TZ=${TZ}
       # Server list updater. See https://github.com/qdm12/gluetun/wiki/Updating-Servers#periodic-update
       - UPDATER_PERIOD=
       - UPDATER_VPN_SERVICE_PROVIDERS=
       # If QBITTORRENT_SERVER address is not related to VPN_IF_NAME (default: tun0) you'll need to set the variable below
       # - FIREWALL_OUTBOUND_SUBNETS=172.16.0.0/24
     ports:
-      # - 8888:8888/tcp # HTTP proxy
-      # - 8388:8388/tcp # Shadowsocks
-      # - 8388:8388/udp # Shadowsocks
       - 8080:8080/tcp # qBittorrent
-    # networks:
-    #   gluetun-network:
-    #     ipv4_address: 172.16.0.10
+      - 2468:2468 # cross-seed
+      - 8989:8989 # sonarr
+      - 7878:7878 # radarr
+      - 8686:8686 # lidarr
+      - 9117:9117 # jackett
+      - 7474:7474 # autobrr
+      - 8191:8191 # flaresolverr
 
   qbittorrent:
-    # https://docs.linuxserver.io/images/docker-qbittorrent
-    image: lscr.io/linuxserver/qbittorrent:latest
+    image: qbittorrentofficial/qbittorrent-nox:latest
     container_name: qbittorrent
     restart: unless-stopped
     volumes:
-      - /<yourpath>/config:/config
-      - /<yourpath>/downloads:/downloads
+      - ./config/qBittorrent/config:/config
+      - ./downloads:/downloads
     environment:
-      - TZ=Etc/UTC
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
     network_mode: "service:gluetun"
+    tmpfs:
+      - /tmp
     depends_on:
       gluetun:
         condition: service_healthy
@@ -70,16 +74,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      - TZ=Etc/UTC
-      # - QBITTORRENT_SERVER=
-      # - QBITTORRENT_PORT=8080
-      # - QBITTORRENT_USER=admin
-      # - QBITTORRENT_PASS=adminadmin
-      # - VPN_GATEWAY=
-      # - VPN_CT_NAME=gluetun
-      # - VPN_IF_NAME=tun0
-      # - CHECK_INTERVAL=300
-      # - NAT_LEASE_LIFETIME=300
+      - TZ=${TZ}
     network_mode: "service:gluetun"
     depends_on:
       qbittorrent:
@@ -87,10 +82,96 @@ services:
       gluetun:
         condition: service_healthy
 
-#networks:
-#  gluetun-network:
-#    driver: bridge
-#    ipam:
-#      config:
-#        - subnet: 172.16.0.0/24
-#          gateway: 172.16.0.254
+ qbittools:
+  image: registry.gitlab.com/alexkm/qbittools
+  network_mode: "service:gluetun"
+  container_name: qbittools
+  volumes:
+  - ./config/qBittorrent/config:/qBittorrent
+  command: reannounce -C /qBittorrent/qBittorrent.conf
+  restart: unless-stopped
+  
+   cross-seed:
+  image: crossseed/cross-seed:latest
+  network_mode: "service:gluetun"
+  container_name: cross-seed
+  user: ${PUID}:${PGID}
+  volumes:
+   - ./config/cross-seed:/config
+   - ./config/qBittorrent/data/BT_backup:/torrents
+   - ./downloads:/downloads
+  command: daemon
+  restart: unless-stopped
+  
+ flaresolverr:
+  image: ghcr.io/flaresolverr/flaresolverr:latest
+  container_name: flaresolverr
+  network_mode: "service:gluetun"
+  environment:
+   - LOG_LEVEL=${LOG_LEVEL:-info}
+   - LOG_HTML=${LOG_HTML:-false}
+   - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
+   - TZ=${TZ}
+  restart: unless-stopped
+  
+ autobrr:
+  container_name: autobrr
+  image: ghcr.io/autobrr/autobrr:latest
+  network_mode: "service:gluetun"
+  restart: unless-stopped
+  user: ${PUID}:${PGID}
+  environment:
+   - TZ=${TZ}
+  volumes:
+   - ./config/autobrr:/config
+ 
+ lidarr:
+  container_name: lidarr
+  network_mode: "service:gluetun"
+  restart: unless-stopped
+  volumes:
+    - ./config/Lidarr:/config
+    - ./downloads/music:/downloads/music
+  environment:
+   - PUID=${PUID}
+   - PGID=${PGID}
+   - TZ=${TZ}
+  image: linuxserver/lidarr
+
+ jackett:
+  container_name: jackett
+  network_mode: "service:gluetun"
+  restart: unless-stopped
+  volumes:
+   - ./config:/config
+  environment:
+   - PUID=${PUID}
+   - PGID=${PGID}
+   - TZ=${TZ}
+  image: linuxserver/jackett
+  
+ sonarr:
+  container_name: sonarr
+  network_mode: "service:gluetun"
+  restart: unless-stopped
+  volumes:
+    - ./config/Sonarr:/config
+    - ./downloads/tvshows:/downloads/tvshows
+  environment:
+   - PUID=${PUID}
+   - PGID=${PGID}
+   - TZ=${TZ}
+  image: linuxserver/sonarr
+  
+ radarr:
+  container_name: radarr
+  network_mode: "service:gluetun"
+  restart: unless-stopped
+  volumes:
+    - ./config/Radarr:/config
+    - ./downloads/movies:/downloads/movies
+  environment:
+   - PUID=${PUID}
+   - PGID=${PGID}
+   - TZ=${TZ}
+  image: linuxserver/radarr
