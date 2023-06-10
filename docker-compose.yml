@@ -47,6 +47,7 @@ services:
       - 9117:9117 # jackett
       - 7474:7474 # autobrr
       - 8191:8191 # flaresolverr
+      - 9696:9696 # prowlarr
 
   qbittorrent:
     image: qbittorrentofficial/qbittorrent-nox:latest
@@ -175,3 +176,15 @@ services:
    - PGID=${PGID}
    - TZ=${TZ}
   image: linuxserver/radarr
+
+ prowlarr:
+  image: lscr.io/linuxserver/prowlarr:latest
+  container_name: prowlarr
+  network_mode: "service:gluetun"
+  environment:
+   - PUID=${PUID}
+   - PGID=${PGID}
+   - TZ=${TZ}
+  volumes:
+   - ./config/prowlarr:/config
+  restart: unless-stopped
